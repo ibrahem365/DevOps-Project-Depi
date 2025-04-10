@@ -1,7 +1,6 @@
 pipeline {
-    agent {
-        label 'slave'
-    }
+    agent any
+    
     environment {
         TERRAFORM_DIR = "terraform/"
         ANSIBLE_PLAYBOOK = "ansible/playbook.yml"
@@ -10,7 +9,7 @@ pipeline {
         stage("Prep") {
             steps {
                 git(
-                    url: "https://github.com/mhosnyamer/DEPI-ToDoList.git",
+                    url: "https://github.com/ibrahem365/DevOps-Project-Depi.git",
                     branch: "main",
                     credentialsId: "GitHub",
                     changelog: true,
