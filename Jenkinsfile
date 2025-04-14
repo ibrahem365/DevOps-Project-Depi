@@ -16,7 +16,7 @@ pipeline {
                     poll: true
                 )
             }
-        }
+        }/*
         stage("Terraform init") {
             steps {
                 dir("${TERRAFORM_DIR}") {
@@ -109,7 +109,7 @@ pipeline {
                     }
                 }
             }
-        }
+        }*/
     }
     post {
         success {
