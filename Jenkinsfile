@@ -15,7 +15,8 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/ibrahem365/DevOps-Project-Depi.git'
+                git branch: 'main', 
+                url: 'https://github.com/ibrahem365/DevOps-Project-Depi.git'
             }
         }
         stage('Terraform init') {
