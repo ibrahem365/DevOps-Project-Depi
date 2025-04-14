@@ -16,14 +16,14 @@ pipeline {
                     poll: true
                 )
             }
-        }/*
+        }
         stage("Terraform init") {
             steps {
                 dir("${TERRAFORM_DIR}") {
                     sh 'terraform init'
                 }    
             }
-        }
+        }/*
         stage('Create ec2 instances using Terraform') {
             steps {
                 withCredentials([sshUserPrivateKey(credentialsId: 'jenkins_ssh_key', keyFileVariable: 'SSH_KEY')]) {
