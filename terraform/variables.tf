@@ -1,4 +1,4 @@
 variable "ssh_key_path" {
-  description = "Path to the SSH key"
+  description = "terrafor/my-key"
   type        = string
 }

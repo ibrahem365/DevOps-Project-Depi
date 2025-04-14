@@ -21,6 +21,6 @@ variable "name" {
 }
 
 variable "ssh_key_path" {
-  description = "Path to the SSH key"
+  description = "terraform/my-key"
   type        = string
 }
