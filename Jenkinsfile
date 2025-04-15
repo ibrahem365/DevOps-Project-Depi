@@ -1,5 +1,5 @@
 pipeline {
-    agent any
+    agent {any}
     
     environment {
         TERRAFORM_DIR = "terraform/"
