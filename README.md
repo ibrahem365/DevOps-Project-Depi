@@ -22,3 +22,5 @@ Repo for Devops project
 ├── requirements.txt    # Python dependencies
 ├── test_app.py         # Pytest test cases for the Flask app
 └── wsgi.py             # WSGI entry point for Gunicorn
+
+///////////////////
