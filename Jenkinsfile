@@ -1,5 +1,5 @@
 pipeline {
-    agent {any}
+    agent any
     
     environment {
         TERRAFORM_DIR = "terraform/"
@@ -11,9 +11,7 @@ pipeline {
                 git(
                     url: "https://github.com/ibrahem365/DevOps-Project-Depi.git",
                     branch: "main",
-                    credentialsId: "GitHub",
-                    changelog: true,
-                    poll: true
+                    
                 )
             }
         }
@@ -115,27 +113,21 @@ pipeline {
         success {
             withCredentials([usernamePassword(credentialsId:"docker",usernameVariable:"USER",passwordVariable:"PASS")]){
                 slackSend(
-                    channel: "final-project",
+                    channel: "depi-project-devops",
                     color: "good",
+                    teamDomain: 'devopsproject-a4j4306', tokenCredentialId: 'slack',
                     message: "${env.JOB_NAME} is succeeded. Build no. ${env.BUILD_NUMBER} " + 
-                     "(<https://hub.docker.com/repository/docker/${USER}/todo-app/general|Open the image link>)"
+                    "(<https://hub.docker.com/repository/docker/${USER}/todo-app/general|Open the image link>)"
                 )
             }
         }
         failure {
-            withCredentials([sshUserPrivateKey(credentialsId: 'jenkins_ssh_key', keyFileVariable: 'SSH_KEY')]) {
-                    dir("${TERRAFORM_DIR}") {
-                        // Apply Terraform and pass the private key to the instance creation process
-                        sh """
-                        terraform destroy -auto-approve -var ssh_key_path=$SSH_KEY
-                        """
-                    }
-                }
             slackSend(
-                channel: "final-project",
+                channel: "depi-project-devops",
                 color: "danger",
-                message: "${env.JOB_NAME} is failed. Build no. ${env.BUILD_NUMBER} URL: ${env.BUILD_URL}"
+                message: "${env.JOB_NAME} is failed. Build no. ${env.BUILD_NUMBER} URL: ${env.BUILD_URL}",
+                teamDomain: 'devopsproject-a4j4306', tokenCredentialId: 'slack'
             )
         }
-    }
+    }    
 }
