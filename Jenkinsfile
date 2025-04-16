@@ -1,177 +1,146 @@
 pipeline {
     agent any
-    
+
     environment {
         TERRAFORM_DIR = "terraform/"
-        TERRAFORM_BIN_DIR = "${WORKSPACE}/terraform-bin"
-        ANSIBLE_PLAYBOOK = "ansible/playbook.yml"
+        TERRAFORM_VERSION = "1.6.3"
+        TERRAFORM_BIN_DIR = "/usr/local/bin"
     }
+
     stages {
         stage("Prep") {
             steps {
                 git(
                     url: "https://github.com/ibrahem365/DevOps-Project-Depi.git",
                     branch: "main",
-                    
+    
                 )
             }
         }
-        stage("Terraform init") {
+
+        stage("Install Terraform") {
             steps {
-                dir("${TERRAFORM_DIR}") {
-                    script {
+                script {
                     sh '''
                         set -e
-
-                        echo "Creating local bin directory..."
+                        echo "Installing Terraform ${TERRAFORM_VERSION}..."
                         mkdir -p ${TERRAFORM_BIN_DIR}
                         cd /tmp
-
-                        echo "Downloading Terraform ${TERRAFORM_VERSION}..."
                         curl -s -O https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip
-
-                        echo "Unzipping..."
                         unzip -o terraform_${TERRAFORM_VERSION}_linux_amd64.zip
-
-                        echo "Moving Terraform binary to local bin dir..."
-                        mv terraform ${TERRAFORM_BIN_DIR}/terraform
-
-                        echo "Cleaning up..."
+                        sudo mv terraform ${TERRAFORM_BIN_DIR}/terraform
                         rm -f terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+                        echo "Terraform installed successfully."
                     '''
-                    }
-                    
-                }    
+                }
             }
         }
-        stage('Terraform Init') {
+
+        stage("Terraform Init & Apply") {
             steps {
-                withEnv(["PATH=${env.TERRAFORM_BIN_DIR}:/usr/bin:/bin"]) {
+                withCredentials([sshUserPrivateKey(credentialsId: 'jenkins_ssh_key', keyFileVariable: 'SSH_KEY')]) {
                     dir("${TERRAFORM_DIR}") {
                         sh '''
-                          terraform version
-                          terraform init
+                            terraform init
+                            terraform apply -auto-approve -var ssh_key_path=$SSH_KEY
                         '''
-                    }    
-                }
-            }
-        }
-        stage('Plan') {
-            steps {
-                withEnv(["PATH=${TERRAFORM_BIN_DIR}:${env.PATH}"]) {
-                   dir("${TERRAFORM_DIR}") { 
-                      sh 'terraform plan -out tfplan'
-                      sh 'terraform show -no-color tfplan > tfplan.txt'
-                    } 
-                }
-            }
-        }
-        stage('Create ec2 instances using Terraform') {
-            steps {
-                withCredentials([sshUserPrivateKey(credentialsId: 'jenkins_ssh_key', keyFileVariable: 'SSH_KEY')]) {
-                    dir("${TERRAFORM_DIR}") {
-                        // Apply Terraform and pass the private key to the instance creation process
-                        sh """
-                        terraform apply -auto-approve -var ssh_key_path=$SSH_KEY
-                        """
                     }
                 }
             }
         }
-        stage('Run Ansible Playbook To Configure The Deployment and monitoring Environment') {
-            steps {
-                // Pass the SSH key and publicIP to Ansible 
-                    sh """
-                        echo "[todoApp]" > ansible/inventory.ini
-                        cat terraform/ec2_public_ip.txt >> ansible/inventory.ini
-                        echo " ansible_user=ubuntu" >> ansible/inventory.ini
 
-                        echo "\n[prometheus]" >> ansible/inventory.ini
-                        cat terraform/prometheus_public_ip.txt >> ansible/inventory.ini
-                        echo " ansible_user=ubuntu" >> ansible/inventory.ini
-                        sleep 30
-                    """
-                withCredentials([sshUserPrivateKey(credentialsId: 'jenkins_ssh_key', keyFileVariable: 'SSH_KEY')]) {
-                    withEnv(["ANSIBLE_HOST_KEY_CHECKING=false"]){
-                        ansiblePlaybook(
-                            playbook: "${ANSIBLE_PLAYBOOK}", 
-                            inventory: 'ansible/inventory.ini', 
-                            extras: "--private-key=$SSH_KEY"
-                        )
-                    }
-                }
-            }
-        }
-        stage("adding scraping targets to prometheus") {
+        stage("Install Docker & Prometheus") {
             steps {
                 withCredentials([sshUserPrivateKey(credentialsId: 'jenkins_ssh_key', keyFileVariable: 'SSH_KEY')]) {
                     script {
+                        def appIp = readFile('terraform/ec2_public_ip.txt').trim()
                         def prometheusIp = readFile('terraform/prometheus_public_ip.txt').trim()
-                        def publicIp = readFile('terraform/ec2_public_ip.txt').trim()
-                        sh """
-                        scp -i $SSH_KEY prometheus.yml ubuntu@${prometheusIp}:/home/ubuntu/
-                        ssh -i $SSH_KEY -o StrictHostKeyChecking=no ubuntu@${prometheusIp} '
-                        sudo mv /home/ubuntu/prometheus.yml /etc/prometheus/prometheus.yml && \
-                        sudo sed -i "s/publicIp/${publicIp}/g" /etc/prometheus/prometheus.yml && \
-                        sudo systemctl restart prometheus'
-                """
 
+                        sh """
+                            echo "==== Installing Docker on App EC2 ===="
+                            ssh -i $SSH_KEY -o StrictHostKeyChecking=no ubuntu@${appIp} << 'EOF'
+                                set -e
+                                sudo apt-get update -y
+                                sudo apt-get install -y docker.io
+                                sudo systemctl enable docker
+                                sudo systemctl start docker
+                            EOF
+
+                            echo "==== Installing Prometheus on Prometheus EC2 ===="
+                            ssh -i $SSH_KEY -o StrictHostKeyChecking=no ubuntu@${prometheusIp} << 'EOF'
+                                set -e
+                                sudo apt-get update -y
+                                sudo apt-get install -y prometheus
+                                sudo systemctl enable prometheus
+                                sudo systemctl start prometheus
+                            EOF
+                        """
                     }
                 }
             }
         }
-        stage("Build") {
-            steps {
-                withCredentials([usernamePassword(credentialsId:"docker",usernameVariable:"USER",passwordVariable:"PASS")]){
-                sh 'docker build . -t ${USER}/todo-app:v1.${BUILD_NUMBER}'
-                sh 'docker login -u ${USER} -p ${PASS}'
-                sh 'docker push ${USER}/todo-app:v1.${BUILD_NUMBER}'
-                }
-            }
-        }
-        stage("Test") {
-            steps {
-                withCredentials([usernamePassword(credentialsId:"docker",usernameVariable:"USER",passwordVariable:"PASS")]){
-                sh 'docker run --rm ${USER}/todo-app:v1.${BUILD_NUMBER} pytest /app'
-                }
-            }
-        }
-        stage("Deploy") {
+
+        stage("Configure Prometheus Targets") {
             steps {
                 withCredentials([sshUserPrivateKey(credentialsId: 'jenkins_ssh_key', keyFileVariable: 'SSH_KEY')]) {
                     script {
-                        def publicIp = readFile('terraform/ec2_public_ip.txt').trim()
-                        withCredentials([usernamePassword(credentialsId:"docker",usernameVariable:"USER",passwordVariable:"PASS")]){
+                        def appIp = readFile('terraform/ec2_public_ip.txt').trim()
+                        def prometheusIp = readFile('terraform/prometheus_public_ip.txt').trim()
+
                         sh """
-                            ssh -i $SSH_KEY -o StrictHostKeyChecking=no ubuntu@${publicIp} '
-                            docker ps -aq | grep -v \$(docker ps -aqf "name=cadvisor") | xargs -r docker rm -f && \
-                            docker run -d --name todo-app -p 3000:3000 ${USER}/todo-app:v1.${BUILD_NUMBER}'
+                            echo "==== Sending prometheus.yml to Prometheus Server ===="
+                            scp -i $SSH_KEY -o StrictHostKeyChecking=no prometheus.yml ubuntu@${prometheusIp}:/home/ubuntu/
+                            ssh -i $SSH_KEY -o StrictHostKeyChecking=no ubuntu@${prometheusIp} '
+                                sudo mv /home/ubuntu/prometheus.yml /etc/prometheus/prometheus.yml && \
+                                sudo sed -i "s/publicIp/${appIp}/g" /etc/prometheus/prometheus.yml && \
+                                sudo systemctl restart prometheus
+                            '
                         """
-                        }
+                    }
+                }
+            }
+        }
+
+        stage("Build Docker Image") {
+            steps {
+                withCredentials([usernamePassword(credentialsId:"docker", usernameVariable:"USER", passwordVariable:"PASS")]) {
+                    sh '''
+                        docker build . -t ${USER}/todo-app:v1.${BUILD_NUMBER}
+                        docker login -u ${USER} -p ${PASS}
+                        docker push ${USER}/todo-app:v1.${BUILD_NUMBER}
+                    '''
+                }
+            }
+        }
+
+        stage("Test Docker Image") {
+            steps {
+                withCredentials([usernamePassword(credentialsId:"docker", usernameVariable:"USER", passwordVariable:"PASS")]) {
+                    sh '''
+                        docker run --rm ${USER}/todo-app:v1.${BUILD_NUMBER} pytest /app
+                    '''
+                }
+            }
+        }
+
+        stage("Deploy to EC2") {
+            steps {
+                withCredentials([
+                    sshUserPrivateKey(credentialsId: 'jenkins_ssh_key', keyFileVariable: 'SSH_KEY'),
+                    usernamePassword(credentialsId:"docker", usernameVariable:"USER", passwordVariable:"PASS")
+                ]) {
+                    script {
+                        def appIp = readFile('terraform/ec2_public_ip.txt').trim()
+
+                        sh """
+                            ssh -i $SSH_KEY -o StrictHostKeyChecking=no ubuntu@${appIp} '
+                                docker ps -aq | grep -v \$(docker ps -aqf "name=cadvisor") | xargs -r docker rm -f || true && \
+                                docker run -d --name todo-app -p 3000:3000 ${USER}/todo-app:v1.${BUILD_NUMBER}
+                            '
+                        """
                     }
                 }
             }
         }
     }
-    post {
-        success {
-            withCredentials([usernamePassword(credentialsId:"docker",usernameVariable:"USER",passwordVariable:"PASS")]){
-                slackSend(
-                    channel: "depi-project-devops",
-                    color: "good",
-                    teamDomain: 'devopsproject-a4j4306', tokenCredentialId: 'slack',
-                    message: "${env.JOB_NAME} is succeeded. Build no. ${env.BUILD_NUMBER} " + 
-                    "(<https://hub.docker.com/repository/docker/${USER}/todo-app/general|Open the image link>)"
-                )
-            }
-        }
-        failure {
-            slackSend(
-                channel: "depi-project-devops",
-                color: "danger",
-                message: "${env.JOB_NAME} is failed. Build no. ${env.BUILD_NUMBER} URL: ${env.BUILD_URL}",
-                teamDomain: 'devopsproject-a4j4306', tokenCredentialId: 'slack'
-            )
-        }
-    }    
 }
