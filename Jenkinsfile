@@ -40,10 +40,30 @@ pipeline {
                         rm -f terraform_${TERRAFORM_VERSION}_linux_amd64.zip
                     '''
                     }
-                    withEnv(["PATH=${env.TERRAFORM_BIN_DIR}:/usr/bin:/bin"]) {
-                      sh 'terraform init'
-                    }
+                    
                 }    
+            }
+        }
+        stage('Terraform Init') {
+            steps {
+                withEnv(["PATH=${env.TERRAFORM_BIN_DIR}:/usr/bin:/bin"]) {
+                    dir("${TERRAFORM_DIR}") {
+                        sh '''
+                          terraform version
+                          terraform init
+                        '''
+                    }    
+                }
+            }
+        }
+        stage('Plan') {
+            steps {
+                withEnv(["PATH=${TERRAFORM_BIN_DIR}:${env.PATH}"]) {
+                   dir("${TERRAFORM_DIR}") { 
+                      sh 'terraform plan -out tfplan'
+                      sh 'terraform show -no-color tfplan > tfplan.txt'
+                    } 
+                }
             }
         }
         stage('Create ec2 instances using Terraform') {
