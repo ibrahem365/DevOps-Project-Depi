@@ -3,6 +3,7 @@ pipeline {
     
     environment {
         TERRAFORM_DIR = "terraform/"
+        TERRAFORM_BIN_DIR = "${WORKSPACE}/terraform-bin"
         ANSIBLE_PLAYBOOK = "ansible/playbook.yml"
     }
     stages {
@@ -18,7 +19,30 @@ pipeline {
         stage("Terraform init") {
             steps {
                 dir("${TERRAFORM_DIR}") {
-                    sh 'terraform init'
+                    script {
+                    sh '''
+                        set -e
+
+                        echo "Creating local bin directory..."
+                        mkdir -p ${TERRAFORM_BIN_DIR}
+                        cd /tmp
+
+                        echo "Downloading Terraform ${TERRAFORM_VERSION}..."
+                        curl -s -O https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+
+                        echo "Unzipping..."
+                        unzip -o terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+
+                        echo "Moving Terraform binary to local bin dir..."
+                        mv terraform ${TERRAFORM_BIN_DIR}/terraform
+
+                        echo "Cleaning up..."
+                        rm -f terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+                    '''
+                    }
+                    withEnv(["PATH=${env.TERRAFORM_BIN_DIR}:/usr/bin:/bin"]) {
+                      sh 'terraform init'
+                    }
                 }    
             }
         }
