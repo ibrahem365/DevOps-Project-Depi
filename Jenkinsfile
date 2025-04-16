@@ -4,8 +4,7 @@ pipeline {
     environment {
         TERRAFORM_DIR = "terraform/"
         TERRAFORM_VERSION = "1.6.3"
-        TERRAFORM_BIN_DIR = "/usr/local/bin"
-        PATH = "${env.HOME}/.local/bin:${env.PATH}"
+        PATH = "${env.WORKSPACE}/bin:${env.PATH}"
     }
 
     stages {
@@ -15,6 +14,7 @@ pipeline {
                     url: "https://github.com/ibrahem365/DevOps-Project-Depi.git",
                     branch: "main",
                 )
+                sh 'mkdir -p ${WORKSPACE}/bin'
             }
         }
 
@@ -23,19 +23,24 @@ pipeline {
                 script {
                     sh '''
                     set -e
-                    echo "Installing unzip..."
-                    # Use sudo for package installation
-                    sudo apt-get update
-                    sudo apt-get install -y unzip
                     echo "Installing Terraform 1.6.3..."
-                    mkdir -p ~/.local/bin
                     cd /tmp
                     curl -s -O https://releases.hashicorp.com/terraform/1.6.3/terraform_1.6.3_linux_amd64.zip
-                    unzip -o terraform_1.6.3_linux_amd64.zip
-                    mv terraform ~/.local/bin/terraform
-                    export PATH=~/.local/bin:$PATH
-                    terraform --version
-                '''
+                    # Use unzip if available, otherwise download busybox as fallback
+                    if command -v unzip >/dev/null 2>&1; then
+                        unzip -o terraform_1.6.3_linux_amd64.zip
+                    else
+                        echo "Unzip not available, using busybox..."
+                        if ! command -v busybox >/dev/null 2>&1; then
+                            wget -q -O busybox https://busybox.net/downloads/binaries/1.31.0-defconfig-multiarch-musl/busybox-x86_64
+                            chmod +x busybox
+                        fi
+                        ./busybox unzip terraform_1.6.3_linux_amd64.zip
+                    fi
+                    mv terraform ${WORKSPACE}/bin/terraform
+                    chmod +x ${WORKSPACE}/bin/terraform
+                    ${WORKSPACE}/bin/terraform --version
+                    '''
                 }
             }
         }
@@ -45,8 +50,8 @@ pipeline {
                 withCredentials([sshUserPrivateKey(credentialsId: 'jenkins_ssh_key', keyFileVariable: 'SSH_KEY')]) {
                     dir("${TERRAFORM_DIR}") {
                         sh '''
-                            terraform init
-                            terraform apply -auto-approve -var ssh_key_path=$SSH_KEY
+                            ${WORKSPACE}/bin/terraform init
+                            ${WORKSPACE}/bin/terraform apply -auto-approve -var ssh_key_path=$SSH_KEY
                         '''
                     }
                 }
