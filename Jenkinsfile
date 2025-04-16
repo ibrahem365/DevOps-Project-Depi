@@ -1,12 +1,16 @@
 pipeline {
     agent any
 
+    parameters {
+        string(name: 'AWS_ACCESS_KEY_ID', defaultValue: '', description: 'AWS Access Key ID')
+        password(name: 'AWS_SECRET_ACCESS_KEY', defaultValue: '', description: 'AWS Secret Access Key')
+        string(name: 'AWS_REGION', defaultValue: 'us-east-2', description: 'AWS Region')
+    }
+
     environment {
         TERRAFORM_DIR = "terraform/"
         TERRAFORM_VERSION = "1.6.3"
         PATH = "${env.WORKSPACE}/bin:${env.PATH}"
-        // Define AWS region for Terraform
-        AWS_REGION = "us-east-2" // Change this to your preferred region
     }
 
     stages {
@@ -49,16 +53,18 @@ pipeline {
 
         stage("Terraform Init & Apply") {
             steps {
-                withCredentials([
-                    sshUserPrivateKey(credentialsId: 'jenkins_ssh_key', keyFileVariable: 'SSH_KEY'),
-                    [$class: 'AmazonWebServicesCredentialsBinding', 
-                     credentialsId: 'aws-credentials',
-                     accessKeyVariable: 'AWS_ACCESS_KEY_ID', 
-                     secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']
-                ]) {
+                withCredentials([sshUserPrivateKey(credentialsId: 'jenkins_ssh_key', keyFileVariable: 'SSH_KEY')]) {
                     dir("${TERRAFORM_DIR}") {
                         sh '''
-                            export AWS_REGION=${AWS_REGION}
+                            # Create a local AWS credentials file
+                            mkdir -p ~/.aws
+                            echo "[default]" > ~/.aws/credentials
+                            echo "aws_access_key_id=${AWS_ACCESS_KEY_ID}" >> ~/.aws/credentials
+                            echo "aws_secret_access_key=${AWS_SECRET_ACCESS_KEY}" >> ~/.aws/credentials
+                            echo "[default]" > ~/.aws/config
+                            echo "region=${AWS_REGION}" >> ~/.aws/config
+                            
+                            # Run Terraform commands
                             ${WORKSPACE}/bin/terraform init
                             ${WORKSPACE}/bin/terraform apply -auto-approve -var ssh_key_path=$SSH_KEY
                         '''
