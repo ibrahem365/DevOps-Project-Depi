@@ -14,7 +14,6 @@ pipeline {
                 git(
                     url: "https://github.com/ibrahem365/DevOps-Project-Depi.git",
                     branch: "main",
-    
                 )
             }
         }
@@ -25,8 +24,9 @@ pipeline {
                     sh '''
                     set -e
                     echo "Installing unzip..."
-                    apt-get update
-                    apt-get install -y unzip
+                    # Use sudo for package installation
+                    sudo apt-get update
+                    sudo apt-get install -y unzip
                     echo "Installing Terraform 1.6.3..."
                     mkdir -p ~/.local/bin
                     cd /tmp
