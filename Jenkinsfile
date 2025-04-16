@@ -5,6 +5,8 @@ pipeline {
         TERRAFORM_DIR = "terraform/"
         TERRAFORM_VERSION = "1.6.3"
         PATH = "${env.WORKSPACE}/bin:${env.PATH}"
+        // Define AWS region for Terraform
+        AWS_REGION = "us-east-2" // Change this to your preferred region
     }
 
     stages {
@@ -47,9 +49,16 @@ pipeline {
 
         stage("Terraform Init & Apply") {
             steps {
-                withCredentials([sshUserPrivateKey(credentialsId: 'jenkins_ssh_key', keyFileVariable: 'SSH_KEY')]) {
+                withCredentials([
+                    sshUserPrivateKey(credentialsId: 'jenkins_ssh_key', keyFileVariable: 'SSH_KEY'),
+                    [$class: 'AmazonWebServicesCredentialsBinding', 
+                     credentialsId: 'aws-credentials',
+                     accessKeyVariable: 'AWS_ACCESS_KEY_ID', 
+                     secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']
+                ]) {
                     dir("${TERRAFORM_DIR}") {
                         sh '''
+                            export AWS_REGION=${AWS_REGION}
                             ${WORKSPACE}/bin/terraform init
                             ${WORKSPACE}/bin/terraform apply -auto-approve -var ssh_key_path=$SSH_KEY
                         '''
