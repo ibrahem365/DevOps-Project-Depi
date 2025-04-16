@@ -5,6 +5,7 @@ pipeline {
         TERRAFORM_DIR = "terraform/"
         TERRAFORM_VERSION = "1.6.3"
         TERRAFORM_BIN_DIR = "/usr/local/bin"
+        PATH = "${env.HOME}/.local/bin:${env.PATH}"
     }
 
     stages {
@@ -22,16 +23,19 @@ pipeline {
             steps {
                 script {
                     sh '''
-                        set -e
-                        echo "Installing Terraform ${TERRAFORM_VERSION}..."
-                        mkdir -p ${TERRAFORM_BIN_DIR}
-                        cd /tmp
-                        curl -s -O https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip
-                        unzip -o terraform_${TERRAFORM_VERSION}_linux_amd64.zip
-                        sudo mv terraform ${TERRAFORM_BIN_DIR}/terraform
-                        rm -f terraform_${TERRAFORM_VERSION}_linux_amd64.zip
-                        echo "Terraform installed successfully."
-                    '''
+                    set -e
+                    echo "Installing unzip..."
+                    apt-get update
+                    apt-get install -y unzip
+                    echo "Installing Terraform 1.6.3..."
+                    mkdir -p ~/.local/bin
+                    cd /tmp
+                    curl -s -O https://releases.hashicorp.com/terraform/1.6.3/terraform_1.6.3_linux_amd64.zip
+                    unzip -o terraform_1.6.3_linux_amd64.zip
+                    mv terraform ~/.local/bin/terraform
+                    export PATH=~/.local/bin:$PATH
+                    terraform --version
+                '''
                 }
             }
         }
