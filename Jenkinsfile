@@ -61,44 +61,52 @@ pipeline {
                 }
             }
         }
-       stage('Plan') {
-    steps {
-        withEnv(["PATH=${TERRAFORM_BIN_DIR}:${env.PATH}"]) {
-            dir("${TERRAFORM_DIR}") {
-                withCredentials([sshUserPrivateKey(credentialsId: 'jenkins_ssh_key', keyFileVariable: 'SSH_KEY')]) {
-                    sh '''
-                        terraform plan -out=tfplan -var="ssh_key_path=$SSH_KEY"
-                        terraform show -no-color tfplan > tfplan.txt
-                    '''
-                }
-            }
-        }
-    }
-}
-
-        stage('Apply / Destroy') {
+   stage('Plan') {
             steps {
                 withEnv(["PATH=${TERRAFORM_BIN_DIR}:${env.PATH}"]) {
-                    dir("${TERRAFORM_DIR}") { 
-                        script {
-                            if (params.action == 'apply') {
-                                if (!params.autoApprove) {
-                                 def plan = readFile 'tfplan.txt'
-                                 input message: "Do you want to apply the plan?",
-                                 parameters: [text(name: 'Plan', description: 'Please review the plan', defaultValue: plan)]
-                                }
-              
-                            sh 'terraform ${action} -input=false tfplan'
-                            } else if (params.action == 'destroy') {
-                                sh 'terraform ${action} --auto-approve'
-                            } else {
-                                error "Invalid action selected. Please choose either 'apply' or 'destroy'."
+                    dir("${TERRAFORM_DIR}") {
+                        withCredentials([sshUserPrivateKey(credentialsId: 'jenkins_ssh_key', keyFileVariable: 'SSH_KEY')]) {
+                            script {
+                                def sshKeyContent = readFile(file: SSH_KEY).trim()
+                                writeFile file: 'key_content.txt', text: sshKeyContent
+
+                                sh """
+                                    terraform plan -out=tfplan -var="ssh_key_content=${sshKeyContent}"
+                                    terraform show -no-color tfplan > tfplan.txt
+                                """
                             }
                         }
                     }
                 }
             }
         }
+       stage('Apply / Destroy') {
+            steps {
+                withEnv(["PATH=${TERRAFORM_BIN_DIR}:${env.PATH}"]) {
+                    dir("${TERRAFORM_DIR}") {
+                        withCredentials([sshUserPrivateKey(credentialsId: 'jenkins_ssh_key', keyFileVariable: 'SSH_KEY')]) {
+                            script {
+                                def sshKeyContent = readFile(file: SSH_KEY).trim()
+
+                                if (params.action == 'apply') {
+                                    if (!params.autoApprove) {
+                                        def plan = readFile 'tfplan.txt'
+                                        input message: "Do you want to apply the plan?",
+                                        parameters: [text(name: 'Plan', description: 'Please review the plan', defaultValue: plan)]
+                                    }
+                                    sh "terraform apply -input=false tfplan"
+                                } else if (params.action == 'destroy') {
+                                    sh "terraform destroy -auto-approve -var='ssh_key_content=${sshKeyContent}'"
+                                } else {
+                                    error "Invalid action selected. Please choose either 'apply' or 'destroy'."
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         stage('Run Ansible Playbook To Configure The Deployment and monitoring Environment') {
             steps {
                 // Pass the SSH key and publicIP to Ansible 
