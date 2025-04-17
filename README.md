@@ -103,3 +103,9 @@ ansible-playbook -i inventory.ini playbook.yml --private-key <your-key.pem>
 - Access Prometheus at `http://<prometheus-server-ip>:9090`
 - Add scraping targets in `prometheus.yml`.
 
+### ** 7 Names of Team**
+- Ramy Wageh Zaki
+- Ibrahim Mohamed Abdelsalam
+- Aya Ahmed Esmail
+- Mosab Osama Helal
+- Omar Ali Abubakr
