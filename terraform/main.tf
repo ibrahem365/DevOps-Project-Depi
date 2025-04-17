@@ -33,7 +33,7 @@ module "prometheus" {
   source = "./modules/ec2"
   ami           = "ami-0ea3c35c5c3284d82"
   sg-id  = [module.prometheus-sg.id]
-  ssh_key_path = file(var.ssh_key_path)
+  ssh_key       = var.ssh_key_content
   key-name = "connection"
   name = "prometheus"
 }
