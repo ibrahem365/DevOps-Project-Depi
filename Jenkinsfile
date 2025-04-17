@@ -2,169 +2,181 @@ pipeline {
     agent any
 
     parameters {
-        string(name: 'AWS_ACCESS_KEY_ID', defaultValue: '', description: 'AWS Access Key ID')
-        password(name: 'AWS_SECRET_ACCESS_KEY', defaultValue: '', description: 'AWS Secret Access Key')
-        string(name: 'AWS_REGION', defaultValue: 'us-east-2', description: 'AWS Region')
+        booleanParam(name: 'autoApprove', defaultValue: false, description: 'Automatically run apply after generating plan?')
+        choice(name: 'action', choices: ['apply', 'destroy'], description: 'Select the action to perform')
     }
 
     environment {
+        AWS_ACCESS_KEY_ID     = credentials('AWS_ACCESS_KEY_ID')
+        AWS_SECRET_ACCESS_KEY = credentials('AWS_SECRET_ACCESS_KEY')
+        AWS_DEFAULT_REGION    = 'us-east-1'
+        TERRAFORM_VERSION = "1.9.2"
+        TERRAFORM_BIN_DIR = "${WORKSPACE}/terraform-bin"
         TERRAFORM_DIR = "terraform/"
-        TERRAFORM_VERSION = "1.6.3"
-        PATH = "${env.WORKSPACE}/bin:${env.PATH}"
+        DOCKER_IMAGE = 'flask-todo-app'
+        
     }
+    
 
     stages {
-        stage("Prep") {
+        stage('Checkout') {
             steps {
-                git(
-                    url: "https://github.com/ibrahem365/DevOps-Project-Depi.git",
-                    branch: "main",
-                )
-                sh 'mkdir -p ${WORKSPACE}/bin'
+                git branch: 'main', url: 'https://github.com/ramywageh/local-jenkins.git'
             }
         }
-
-        stage("Install Terraform") {
+        stage('Install Terraform') {
             steps {
                 script {
                     sh '''
-                    set -e
-                    echo "Installing Terraform 1.6.3..."
-                    cd /tmp
-                    curl -s -O https://releases.hashicorp.com/terraform/1.6.3/terraform_1.6.3_linux_amd64.zip
-                    # Use unzip if available, otherwise download busybox as fallback
-                    if command -v unzip >/dev/null 2>&1; then
-                        unzip -o terraform_1.6.3_linux_amd64.zip
-                    else
-                        echo "Unzip not available, using busybox..."
-                        if ! command -v busybox >/dev/null 2>&1; then
-                            wget -q -O busybox https://busybox.net/downloads/binaries/1.31.0-defconfig-multiarch-musl/busybox-x86_64
-                            chmod +x busybox
-                        fi
-                        ./busybox unzip terraform_1.6.3_linux_amd64.zip
-                    fi
-                    mv terraform ${WORKSPACE}/bin/terraform
-                    chmod +x ${WORKSPACE}/bin/terraform
-                    ${WORKSPACE}/bin/terraform --version
+                        set -e
+
+                        echo "Creating local bin directory..."
+                        mkdir -p ${TERRAFORM_BIN_DIR}
+                        cd /tmp
+
+                        echo "Downloading Terraform ${TERRAFORM_VERSION}..."
+                        curl -s -O https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+
+                        echo "Unzipping..."
+                        unzip -o terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+
+                        echo "Moving Terraform binary to local bin dir..."
+                        mv terraform ${TERRAFORM_BIN_DIR}/terraform
+
+                        echo "Cleaning up..."
+                        rm -f terraform_${TERRAFORM_VERSION}_linux_amd64.zip
                     '''
                 }
             }
         }
-
-        stage("Terraform Init & Apply") {
+        stage('Terraform Init') {
             steps {
-                withCredentials([sshUserPrivateKey(credentialsId: 'jenkins_ssh_key', keyFileVariable: 'SSH_KEY')]) {
+                withEnv(["PATH=${env.TERRAFORM_BIN_DIR}:/usr/bin:/bin"]) {
                     dir("${TERRAFORM_DIR}") {
                         sh '''
-                            # Create a local AWS credentials file
-                            mkdir -p ~/.aws
-                            echo "[default]" > ~/.aws/credentials
-                            echo "aws_access_key_id=${AWS_ACCESS_KEY_ID}" >> ~/.aws/credentials
-                            echo "aws_secret_access_key=${AWS_SECRET_ACCESS_KEY}" >> ~/.aws/credentials
-                            echo "[default]" > ~/.aws/config
-                            echo "region=${AWS_REGION}" >> ~/.aws/config
-                            
-                            # Run Terraform commands
-                            ${WORKSPACE}/bin/terraform init
-                            ${WORKSPACE}/bin/terraform apply -auto-approve -var ssh_key_path=$SSH_KEY
+                          terraform version
+                          terraform init
                         '''
+                    }    
+                }
+            }
+        }
+        stage('Plan') {
+            steps {
+                withEnv(["PATH=${TERRAFORM_BIN_DIR}:${env.PATH}"]) {
+                   dir("${TERRAFORM_DIR}") { 
+                      sh 'terraform plan -out tfplan'
+                      sh 'terraform show -no-color tfplan > tfplan.txt'
+                    } 
+                }
+            }
+        }
+        stage('Apply / Destroy') {
+            steps {
+                withEnv(["PATH=${TERRAFORM_BIN_DIR}:${env.PATH}"]) {
+                    dir("${TERRAFORM_DIR}") { 
+                        script {
+                            if (params.action == 'apply') {
+                                if (!params.autoApprove) {
+                                 def plan = readFile 'tfplan.txt'
+                                 input message: "Do you want to apply the plan?",
+                                 parameters: [text(name: 'Plan', description: 'Please review the plan', defaultValue: plan)]
+                                }
+              
+                            sh 'terraform ${action} -input=false tfplan'
+                            } else if (params.action == 'destroy') {
+                                sh 'terraform ${action} --auto-approve'
+                            } else {
+                                error "Invalid action selected. Please choose either 'apply' or 'destroy'."
+                            }
+                        }
                     }
                 }
             }
         }
-
-        stage("Install Docker & Prometheus") {
+        stage('Run Ansible Playbook To Configure The Deployment and monitoring Environment') {
             steps {
-                withCredentials([sshUserPrivateKey(credentialsId: 'jenkins_ssh_key', keyFileVariable: 'SSH_KEY')]) {
-                    script {
-                        def appIp = readFile('terraform/ec2_public_ip.txt').trim()
-                        def prometheusIp = readFile('terraform/prometheus_public_ip.txt').trim()
+                // Pass the SSH key and publicIP to Ansible 
+                    sh """
+                        echo "[todoApp]" > ansible/inventory.ini
+                        cat Terraform/ec2_public_ip.txt >> ansible/inventory.ini
+                        echo " ansible_user=ubuntu" >> ansible/inventory.ini
 
-                        sh """
-                            echo "==== Installing Docker on App EC2 ===="
-                            ssh -i $SSH_KEY -o StrictHostKeyChecking=no ubuntu@${appIp} << 'EOF'
-                                set -e
-                                sudo apt-get update -y
-                                sudo apt-get install -y docker.io
-                                sudo systemctl enable docker
-                                sudo systemctl start docker
-                            EOF
+                        sleep 30
+                    """
+                    withCredentials([sshUserPrivateKey(credentialsId: 'jenkins_ssh_key', keyFileVariable: 'SSH_KEY')]) {
+                    sh 'ssh -o StrictHostKeyChecking=no -i $SSH_KEY ubuntu@ec2-35-154-187-90.ap-south-1.compute.amazonaws.com> "hostname"'
 
-                            echo "==== Installing Prometheus on Prometheus EC2 ===="
-                            ssh -i $SSH_KEY -o StrictHostKeyChecking=no ubuntu@${prometheusIp} << 'EOF'
-                                set -e
-                                sudo apt-get update -y
-                                sudo apt-get install -y prometheus
-                                sudo systemctl enable prometheus
-                                sudo systemctl start prometheus
-                            EOF
-                        """
+                    withEnv(["ANSIBLE_HOST_KEY_CHECKING=false"]){
+                        ansiblePlaybook(
+                            playbook: "${ANSIBLE_PLAYBOOK}", 
+                            inventory: 'ansible/inventory.ini', 
+                            extras: "--private-key=$SSH_KEY"
+                        )
                     }
                 }
             }
         }
-
-        stage("Configure Prometheus Targets") {
+        stage('Build') {
             steps {
-                withCredentials([sshUserPrivateKey(credentialsId: 'jenkins_ssh_key', keyFileVariable: 'SSH_KEY')]) {
-                    script {
-                        def appIp = readFile('terraform/ec2_public_ip.txt').trim()
-                        def prometheusIp = readFile('terraform/prometheus_public_ip.txt').trim()
+                sh '''
+                    # Update packages
+                    sudo apt-get update
 
-                        sh """
-                            echo "==== Sending prometheus.yml to Prometheus Server ===="
-                            scp -i $SSH_KEY -o StrictHostKeyChecking=no prometheus.yml ubuntu@${prometheusIp}:/home/ubuntu/
-                            ssh -i $SSH_KEY -o StrictHostKeyChecking=no ubuntu@${prometheusIp} '
-                                sudo mv /home/ubuntu/prometheus.yml /etc/prometheus/prometheus.yml && \
-                                sudo sed -i "s/publicIp/${appIp}/g" /etc/prometheus/prometheus.yml && \
-                                sudo systemctl restart prometheus
-                            '
-                        """
-                    }
-                }
-            }
-        }
+                    # Install required packages
+                    sudo apt-get install -y \
+                      ca-certificates \
+                      curl \
+                      gnupg \
+                      lsb-release
 
-        stage("Build Docker Image") {
-            steps {
-                withCredentials([usernamePassword(credentialsId:"docker", usernameVariable:"USER", passwordVariable:"PASS")]) {
-                    sh '''
-                        docker build . -t ${USER}/todo-app:v1.${BUILD_NUMBER}
-                        docker login -u ${USER} -p ${PASS}
-                        docker push ${USER}/todo-app:v1.${BUILD_NUMBER}
-                    '''
-                }
-            }
-        }
+                    # Add Docker’s official GPG key
+                    sudo mkdir -p /etc/apt/keyrings
+                    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 
-        stage("Test Docker Image") {
-            steps {
-                withCredentials([usernamePassword(credentialsId:"docker", usernameVariable:"USER", passwordVariable:"PASS")]) {
-                    sh '''
-                        docker run --rm ${USER}/todo-app:v1.${BUILD_NUMBER} pytest /app
-                    '''
-                }
-            }
-        }
+                    # Set up the Docker repository
+                    echo \
+                      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+                      $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-        stage("Deploy to EC2") {
-            steps {
-                withCredentials([
-                    sshUserPrivateKey(credentialsId: 'jenkins_ssh_key', keyFileVariable: 'SSH_KEY'),
-                    usernamePassword(credentialsId:"docker", usernameVariable:"USER", passwordVariable:"PASS")
-                ]) {
-                    script {
-                        def appIp = readFile('terraform/ec2_public_ip.txt').trim()
+                    # Install Docker
+                    sudo apt-get update
+                    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-                        sh """
-                            ssh -i $SSH_KEY -o StrictHostKeyChecking=no ubuntu@${appIp} '
-                                docker ps -aq | grep -v \$(docker ps -aqf "name=cadvisor") | xargs -r docker rm -f || true && \
-                                docker run -d --name todo-app -p 3000:3000 ${USER}/todo-app:v1.${BUILD_NUMBER}
-                            '
-                        """
-                    }
-                }
+                    # Verify Docker
+                    docker --version
+                '''
+        
+                sh "docker build -t ${DOCKER_IMAGE}:${BUILD_NUMBER} ."
+                sh "docker tag ${DOCKER_IMAGE}:${BUILD_NUMBER} ${DOCKER_IMAGE}:latest"
+                    
+                // Save Docker image for potential later deployment
+                sh "docker save -o ${DOCKER_IMAGE}.tar ${DOCKER_IMAGE}:${BUILD_NUMBER}"
+                    
+                // Echo image information
+                echo "Built Docker image: ${DOCKER_IMAGE}:${BUILD_NUMBER}"
             }
         }
     }
+    post {
+        success {
+            withCredentials([usernamePassword(credentialsId:"docker",usernameVariable:"USER",passwordVariable:"PASS")]){
+                slackSend(
+                    channel: "depi-project-devops",
+                    color: "good",
+                    teamDomain: 'devopsproject-a4j4306', tokenCredentialId: 'slack',
+                    message: "${env.JOB_NAME} is succeeded. Build no. ${env.BUILD_NUMBER} " + 
+                    "(<https://hub.docker.com/repository/docker/${USER}/todo-app/general|Open the image link>)"
+                )
+            }
+        }
+        failure {
+            slackSend(
+                channel: "depi-project-devops",
+                color: "danger",
+                message: "${env.JOB_NAME} is failed. Build no. ${env.BUILD_NUMBER} URL: ${env.BUILD_URL}",
+                teamDomain: 'devopsproject-a4j4306', tokenCredentialId: 'slack'
+            )
+        }
+    }    
 }
