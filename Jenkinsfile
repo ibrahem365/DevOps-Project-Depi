@@ -10,7 +10,7 @@ pipeline {
         AWS_ACCESS_KEY_ID     = credentials('AWS_ACCESS_KEY_ID')
         AWS_SECRET_ACCESS_KEY = credentials('AWS_SECRET_ACCESS_KEY')
         AWS_DEFAULT_REGION    = 'us-east-1'
-        TERRAFORM_VERSION = "1.9.2"
+        TERRAFORM_VERSION = "1.11.3"
         TERRAFORM_BIN_DIR = "${WORKSPACE}/terraform-bin"
         TERRAFORM_DIR = "terraform/"
         DOCKER_IMAGE = 'flask-todo-app'
