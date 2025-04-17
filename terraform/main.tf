@@ -31,7 +31,7 @@ resource "local_file" "todo-app_public_ip" {
 
 module "prometheus" {
   source = "./modules/ec2"
-  ami           = "ami-0ea3c35c5c3284d82"
+  ami           = "ami-084568db4383264d4"
   sg-id  = [module.prometheus-sg.id]
   ssh_key_path = file(var.ssh_key_path)
   key-name = "connection"

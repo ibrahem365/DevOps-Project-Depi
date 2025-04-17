@@ -6,6 +6,14 @@ resource "aws_security_group" "my-ssh-SG" {
   tags = {
     Name = var.name
   }
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes  = [
+      tags,
+      name,
+      description
+    ]
+  }
 }
 
 resource "aws_vpc_security_group_ingress_rule" "allow_ssh" {
