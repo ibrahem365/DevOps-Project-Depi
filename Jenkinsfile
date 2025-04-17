@@ -61,16 +61,21 @@ pipeline {
                 }
             }
         }
-        stage('Plan') {
-            steps {
-                withEnv(["PATH=${TERRAFORM_BIN_DIR}:${env.PATH}"]) {
-                   dir("${TERRAFORM_DIR}") { 
-                      sh 'terraform plan -out tfplan'
-                      sh 'terraform show -no-color tfplan > tfplan.txt'
-                    } 
+       stage('Plan') {
+    steps {
+        withEnv(["PATH=${TERRAFORM_BIN_DIR}:${env.PATH}"]) {
+            dir("${TERRAFORM_DIR}") {
+                withCredentials([sshUserPrivateKey(credentialsId: 'jenkins_ssh_key', keyFileVariable: 'SSH_KEY')]) {
+                    sh '''
+                        terraform plan -out=tfplan -var="ssh_key_path=$SSH_KEY"
+                        terraform show -no-color tfplan > tfplan.txt
+                    '''
                 }
             }
         }
+    }
+}
+
         stage('Apply / Destroy') {
             steps {
                 withEnv(["PATH=${TERRAFORM_BIN_DIR}:${env.PATH}"]) {
