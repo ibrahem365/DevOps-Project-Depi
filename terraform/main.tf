@@ -6,7 +6,7 @@ module "todo-app" {
   source = "./modules/ec2"
   ami           = "ami-084568db4383264d4"
   sg-id  = [module.todo-app-sg.id]
-  ssh_key_path = file(var.ssh_key_path)
+ ssh_key = var.ssh_key_content
   key-name = "connection"
   name = "todo-app"
 }
