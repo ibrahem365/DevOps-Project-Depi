@@ -6,8 +6,7 @@ module "todo-app" {
   source = "./modules/ec2"
   ami           = "ami-084568db4383264d4"
   sg-id  = [module.todo-app-sg.id]
-  ssh_key_path = file(var.ssh_key_path)
-  key-name = "connection"
+ ssh_key = var.ssh_key_content
   name = "todo-app"
 }
 
@@ -33,8 +32,7 @@ module "prometheus" {
   source = "./modules/ec2"
   ami           = "ami-084568db4383264d4"
   sg-id  = [module.prometheus-sg.id]
-  ssh_key_path = file(var.ssh_key_path)
-  key-name = "connection"
+  ssh_key       = var.ssh_key_content
   name = "prometheus"
 }
 

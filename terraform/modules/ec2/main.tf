@@ -4,12 +4,14 @@ resource "aws_instance" "instance" {
   vpc_security_group_ids = var.sg-id
   
   key_name = var.key-name
-  connection {
-    host        = aws_instance.instance.public_ip
-    type        = "ssh"
-    user        = "ubuntu"
-    private_key = file(var.ssh_key_path)
-  }
+  
+   user_data = <<-EOF
+              #!/bin/bash
+              mkdir -p /home/ubuntu/.ssh
+              echo "${var.ssh_key_content}" >> /home/ubuntu/.ssh/authorized_keys
+              chmod 600 /home/ubuntu/.ssh/authorized_keys
+              chown -R ubuntu:ubuntu /home/ubuntu/.ssh
+              EOF
 
   tags = {
     Name = var.name

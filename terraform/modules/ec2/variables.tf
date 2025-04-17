@@ -12,9 +12,6 @@ variable "user-data" {
   default = ""
 }
 
-variable "key-name" {
-  type = string
-}
 
 variable "name" {
   type = string
