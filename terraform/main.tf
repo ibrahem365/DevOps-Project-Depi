@@ -7,7 +7,6 @@ module "todo-app" {
   ami           = "ami-084568db4383264d4"
   sg-id  = [module.todo-app-sg.id]
  ssh_key = var.ssh_key_content
-  key-name = "connection"
   name = "todo-app"
 }
 
@@ -34,7 +33,6 @@ module "prometheus" {
   ami           = "ami-0ea3c35c5c3284d82"
   sg-id  = [module.prometheus-sg.id]
   ssh_key       = var.ssh_key_content
-  key-name = "connection"
   name = "prometheus"
 }
 
