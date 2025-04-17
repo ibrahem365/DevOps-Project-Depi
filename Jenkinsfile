@@ -21,7 +21,7 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/ramywageh/local-jenkins.git'
+                git branch: 'main', url: 'https://github.com/ibrahem365/DevOps-Project-Depi.git'
             }
         }
         stage('Install Terraform') {
@@ -117,6 +117,24 @@ pipeline {
                 }
             }
         }
+        stage("adding scraping targets to prometheus") {
+            steps {
+                withCredentials([sshUserPrivateKey(credentialsId: 'jenkins_ssh_key', keyFileVariable: 'SSH_KEY')]) {
+                    script {
+                        def prometheusIp = readFile('terraform/prometheus_public_ip.txt').trim()
+                        def publicIp = readFile('terraform/ec2_public_ip.txt').trim()
+                        sh """
+                        scp -i $SSH_KEY prometheus.yml ubuntu@${prometheusIp}:/home/ubuntu/
+                        ssh -i $SSH_KEY -o StrictHostKeyChecking=no ubuntu@${prometheusIp} '
+                        sudo mv /home/ubuntu/prometheus.yml /etc/prometheus/prometheus.yml && \
+                        sudo sed -i "s/publicIp/${publicIp}/g" /etc/prometheus/prometheus.yml && \
+                        sudo systemctl restart prometheus'
+                """
+
+                    }
+                }
+            }
+        }
         stage('Build') {
             steps {
                 sh '''
@@ -155,6 +173,29 @@ pipeline {
                     
                 // Echo image information
                 echo "Built Docker image: ${DOCKER_IMAGE}:${BUILD_NUMBER}"
+            }
+        }
+        stage("Test") {
+            steps {
+                withCredentials([usernamePassword(credentialsId:"docker",usernameVariable:"USER",passwordVariable:"PASS")]){
+                sh 'docker run --rm ${USER}/todo-app:v1.${BUILD_NUMBER} pytest /app'
+                }
+            }
+        }
+        stage("Deploy") {
+            steps {
+                withCredentials([sshUserPrivateKey(credentialsId: 'jenkins_ssh_key', keyFileVariable: 'SSH_KEY')]) {
+                    script {
+                        def publicIp = readFile('terraform/ec2_public_ip.txt').trim()
+                        withCredentials([usernamePassword(credentialsId:"docker",usernameVariable:"USER",passwordVariable:"PASS")]){
+                        sh """
+                            ssh -i $SSH_KEY -o StrictHostKeyChecking=no ubuntu@${publicIp} '
+                            docker ps -aq | grep -v \$(docker ps -aqf "name=cadvisor") | xargs -r docker rm -f && \
+                            docker run -d --name todo-app -p 3000:3000 ${USER}/todo-app:v1.${BUILD_NUMBER}'
+                        """
+                        }
+                    }
+                }
             }
         }
     }
